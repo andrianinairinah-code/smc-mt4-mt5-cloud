@@ -9,7 +9,8 @@ API_LOG="/tmp/api.log"
 > "$API_LOG"
 
 VNC_PORT=5901
-NOVNC_PORT=6901
+NOVNC_PORT=6080
+NGINX_PORT=6901
 API_PORT=${PORT:-5000}
 DISPLAY_NUM=1
 RESOLUTION=${SCREEN_RESOLUTION:-1024x768}
@@ -125,7 +126,20 @@ step_done "Desktop environment started"
 step_start "Starting noVNC web client"
 /opt/noVNC/utils/novnc_proxy --vnc localhost:$VNC_PORT --listen $NOVNC_PORT --web /opt/noVNC >>"$WINE_LOG" 2>&1 &
 sleep 1
-step_done "noVNC started (port $NOVNC_PORT)"
+step_done "noVNC started (internal port $NOVNC_PORT)"
+
+# Start nginx reverse proxy (serves noVNC + Flask API on port 6901)
+step_start "Starting nginx reverse proxy on port $NGINX_PORT"
+sudo nginx -c /etc/nginx/nginx.conf >>"$WINE_LOG" 2>&1 &
+sleep 1
+if pgrep -f "nginx: master" > /dev/null 2>&1; then
+    step_done "nginx reverse proxy started (port $NGINX_PORT)"
+else
+    step_fail "nginx failed to start, trying to use noVNC directly on port $NGINX_PORT"
+    # Fallback: restart noVNC on the original port
+    pkill -f novnc_proxy 2>/dev/null; sleep 1
+    /opt/noVNC/utils/novnc_proxy --vnc localhost:$VNC_PORT --listen $NGINX_PORT --web /opt/noVNC >>"$WINE_LOG" 2>&1 &
+fi
 
 # ============================================================
 # Step 5: Start API Server (early - do not block on MT install)
@@ -262,8 +276,8 @@ echo "  ╔═══════════════════════
 echo "  ║              ✔  Ready!                       ║"
 echo "  ╠══════════════════════════════════════════════╣"
 echo "  ║  VNC:   localhost:$VNC_PORT                       ║"
-echo "  ║  Web:   http://localhost:$NOVNC_PORT/vnc.html       ║"
-echo "  ║  API:   http://0.0.0.0:$API_PORT                   ║"
+echo "  ║  Web:   http://localhost:$NGINX_PORT/vnc.html       ║"
+echo "  ║  API:   http://localhost:$NGINX_PORT/api/           ║"
 echo "  ║  Pass:  ${VNC_PW:-password}                      ║"
 echo "  ╠══════════════════════════════════════════════╣"
 echo "  ║  MT5: $MT5_DIR          ║"

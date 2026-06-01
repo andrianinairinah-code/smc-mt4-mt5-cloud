@@ -2,20 +2,25 @@ FROM hudsonventura/mt5:2.3
 
 USER root
 
-# Install Python3 + pip + Flask + wget
+# Install Python3 + pip + Flask + wget + nginx
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3-pip \
         python3-flask \
         wget \
+        nginx \
     && rm -rf /var/lib/apt/lists/* && \
-    pip3 install flask-cors gunicorn --break-system-packages --quiet 2>/dev/null || true
+    pip3 install flask-cors gunicorn --break-system-packages --quiet 2>&1 || echo "[WARN] pip install flask-cors/gunicorn failed (non-fatal)"
 
 # Copy API server
 COPY api/ /app/api/
 
 # Install Python deps
-RUN pip3 install -r /app/api/requirements.txt --break-system-packages --quiet 2>/dev/null || true
+RUN pip3 install -r /app/api/requirements.txt --break-system-packages --quiet 2>&1 || echo "[WARN] pip install requirements.txt failed (non-fatal)"
+
+# Copy nginx config
+COPY nginx.conf /etc/nginx/nginx.conf
+RUN chmod 644 /etc/nginx/nginx.conf
 
 USER headless
 WORKDIR /home/headless
