@@ -146,13 +146,22 @@ fi
 # ============================================================
 step_start "Starting API server on port $API_PORT"
 cd /app/api
+
+# Ensure Python dependencies are installed
+if ! python3 -c "import flask" 2>/dev/null; then
+    echo "Flask not found, installing..." >> "$API_LOG"
+    pip3 install flask flask-cors --break-system-packages --quiet 2>&1 >> "$API_LOG" || true
+fi
+
 nohup python3 server.py >> "$API_LOG" 2>&1 &
 API_PID=$!
-sleep 2
+sleep 3
 if kill -0 $API_PID 2>/dev/null; then
     step_done "API server started (port $API_PORT)"
 else
-    step_fail "API server failed to start"
+    step_fail "API server failed to start - check $API_LOG"
+    # Log last few lines for diagnosis
+    tail -20 "$API_LOG" 2>/dev/null || true
 fi
 
 # ============================================================
