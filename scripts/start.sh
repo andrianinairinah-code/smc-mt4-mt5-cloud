@@ -128,7 +128,21 @@ sleep 1
 step_done "noVNC started (port $NOVNC_PORT)"
 
 # ============================================================
-# Step 5: Initialize Wine
+# Step 5: Start API Server (early - do not block on MT install)
+# ============================================================
+step_start "Starting API server on port $API_PORT"
+cd /app/api
+nohup python3 server.py >> "$API_LOG" 2>&1 &
+API_PID=$!
+sleep 2
+if kill -0 $API_PID 2>/dev/null; then
+    step_done "API server started (port $API_PORT)"
+else
+    step_fail "API server failed to start"
+fi
+
+# ============================================================
+# Step 6: Initialize Wine
 # ============================================================
 step_start "Initializing Wine environment"
 if [ -d "$HOME/.wine" ]; then
@@ -139,7 +153,7 @@ while pgrep -u $(whoami) wineboot >/dev/null 2>&1; do sleep 1; done
 step_done "Wine environment initialized"
 
 # ============================================================
-# Step 6: Install MetaTrader 5 (if missing)
+# Step 7: Install MetaTrader 5 (if missing)
 # ============================================================
 if [ ! -f "$MT5_EXE" ]; then
     step_start "Installing MetaTrader 5 (this may take a few minutes)"
@@ -164,7 +178,7 @@ else
 fi
 
 # ============================================================
-# Step 7: Install HFM MT4 (if missing)
+# Step 8: Install HFM MT4 (if missing)
 # ============================================================
 if [ ! -f "$MT4_EXE" ]; then
     step_start "Installing HFM MetaTrader 4 (this may take a few minutes)"
@@ -186,20 +200,6 @@ else
     step_start "Checking HFM MetaTrader 4"
     sleep 0.5
     step_done "HFM MetaTrader 4 already installed"
-fi
-
-# ============================================================
-# Step 8: Start API Server
-# ============================================================
-step_start "Starting API server on port $API_PORT"
-cd /app/api
-nohup python3 server.py >> "$API_LOG" 2>&1 &
-API_PID=$!
-sleep 2
-if kill -0 $API_PID 2>/dev/null; then
-    step_done "API server started (port $API_PORT)"
-else
-    step_fail "API server failed to start"
 fi
 
 # ============================================================

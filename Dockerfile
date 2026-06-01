@@ -28,6 +28,6 @@ RUN mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Inclu
 COPY scripts/start.sh /start.sh
 RUN sudo chmod +x /start.sh
 
-EXPOSE 5901 6901
+EXPOSE 5901 6901 5000
 
 CMD ["/bin/bash", "/start.sh"]
