@@ -12,6 +12,16 @@ VNC_PORT=5901
 NOVNC_PORT=6080
 NGINX_PORT=6901
 API_PORT=${PORT:-5000}
+
+# Determine Python command
+PYTHON_CMD=""
+for cmd in python3 python; do
+    if command -v $cmd &>/dev/null; then
+        PYTHON_CMD=$cmd
+        break
+    fi
+done
+[ -z "$PYTHON_CMD" ] && PYTHON_CMD="python3"  # fallback
 DISPLAY_NUM=1
 RESOLUTION=${SCREEN_RESOLUTION:-1024x768}
 DEPTH=24
@@ -148,12 +158,20 @@ step_start "Starting API server on port $API_PORT"
 cd /app/api
 
 # Ensure Python dependencies are installed
-if ! python3 -c "import flask" 2>/dev/null; then
+if ! $PYTHON_CMD -c "import flask" 2>/dev/null; then
     echo "Flask not found, installing..." >> "$API_LOG"
-    pip3 install flask flask-cors --break-system-packages --quiet 2>&1 >> "$API_LOG" || true
+    $PYTHON_CMD -m pip install flask flask-cors --break-system-packages --quiet 2>&1 >> "$API_LOG" || true
 fi
 
-nohup python3 server.py >> "$API_LOG" 2>&1 &
+# Test import
+if $PYTHON_CMD -c "import flask; print('Flask OK')" >> "$API_LOG" 2>&1; then
+    echo "API server starting..." >> "$API_LOG"
+else
+    echo "Flask import failed, trying to install python3-flask via apt..." >> "$API_LOG"
+    sudo apt-get install -y python3-flask 2>&1 >> "$API_LOG" || true
+fi
+
+nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
 API_PID=$!
 sleep 3
 if kill -0 $API_PID 2>/dev/null; then
@@ -310,7 +328,7 @@ while true; do
     # Check API
     if ! kill -0 $API_PID 2>/dev/null; then
         echo "API server died, restarting..."
-        cd /app/api && nohup python3 server.py >> "$API_LOG" 2>&1 &
+        cd /app/api && nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
         API_PID=$!
     fi
 
