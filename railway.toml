@@ -1,0 +1,23 @@
+[service]
+name = "smc-cloud"
+
+[service.networking]
+public = true
+port = 6901
+type = "http"
+
+[service.volumes]
+  [service.volumes.mt5_data]
+  path = "/home/headless/.wine"
+  size = "2GB"
+
+[service.autoscaling]
+min_replicas = 1
+max_replicas = 1
+sleep_enabled = false
+
+[service.healthcheck]
+path = "/"
+interval = 60
+timeout = 30
+retries = 3
