@@ -157,20 +157,7 @@ fi
 step_start "Starting API server on port $API_PORT"
 cd /app/api
 
-# Ensure Python dependencies are installed
-if ! $PYTHON_CMD -c "import flask" 2>/dev/null; then
-    echo "Flask not found, installing..." >> "$API_LOG"
-    $PYTHON_CMD -m pip install flask flask-cors --break-system-packages --quiet 2>&1 >> "$API_LOG" || true
-fi
-
-# Test import
-if $PYTHON_CMD -c "import flask; print('Flask OK')" >> "$API_LOG" 2>&1; then
-    echo "API server starting..." >> "$API_LOG"
-else
-    echo "Flask import failed, trying to install python3-flask via apt..." >> "$API_LOG"
-    sudo apt-get install -y python3-flask 2>&1 >> "$API_LOG" || true
-fi
-
+echo "Starting API with $PYTHON_CMD on port $API_PORT ($(date))" >> "$API_LOG"
 nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
 API_PID=$!
 sleep 3
