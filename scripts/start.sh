@@ -140,15 +140,25 @@ step_start "Starting noVNC web client"
 sleep 1
 step_done "noVNC started (internal port $NOVNC_PORT)"
 
-# Start nginx reverse proxy (serves noVNC + Flask API on port 6901)
+# Start nginx reverse proxy (serves noVNC on port 6901, API on 8080)
 step_start "Starting nginx reverse proxy on port $NGINX_PORT"
-sudo nginx -c /etc/nginx/nginx.conf >>"$WINE_LOG" 2>&1 &
+# Diagnose: what is on port 6901 before we start?
+echo "=== Port $NGINX_PORT check ===" | tee -a "$WINE_LOG"
+ss -tlnp "sport = :$NGINX_PORT" 2>/dev/null >> "$WINE_LOG" || true
+# Kill any stale noVNC from base image entrypoint
+sudo fuser -k "${NGINX_PORT}/tcp" 2>/dev/null || true
+pkill -f novnc_proxy 2>/dev/null || true
 sleep 1
-if pgrep -f "nginx: master" > /dev/null 2>&1; then
+# Try nginx and log any error
+sudo nginx -c /etc/nginx/nginx.conf >>"$WINE_LOG" 2>&1
+NGINX_EXIT=$?
+echo "=== nginx exit code: $NGINX_EXIT ===" | tee -a "$WINE_LOG"
+sleep 2
+if [ $NGINX_EXIT -eq 0 ] && pgrep -f "nginx: master" > /dev/null 2>&1; then
     step_done "nginx reverse proxy started (port $NGINX_PORT)"
 else
-    step_fail "nginx failed to start, trying to use noVNC directly on port $NGINX_PORT"
-    # Fallback: restart noVNC on the original port
+    step_fail "nginx failed to start (exit $NGINX_EXIT), trying noVNC directly"
+    # Fallback: kill stale noVNC, start fresh on Railway port
     pkill -f novnc_proxy 2>/dev/null; sleep 1
     /opt/noVNC/utils/novnc_proxy --vnc localhost:$VNC_PORT --listen $NGINX_PORT --web /opt/noVNC >>"$WINE_LOG" 2>&1 &
 fi
