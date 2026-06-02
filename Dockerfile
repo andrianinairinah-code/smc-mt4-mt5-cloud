@@ -6,7 +6,8 @@ USER root
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
-        netcat-openbsd \
+        python3-pip \
+        curl \
         wget \
         nginx \
     && rm -rf /var/lib/apt/lists/*

@@ -157,28 +157,29 @@ fi
 step_start "Starting API server on port $API_PORT"
 cd /app/api
 
-# Try Python API first
+# Test if Python works at all with minimal server
 API_PID=""
-if command -v $PYTHON_CMD &>/dev/null; then
-    echo "Starting Python API on port $API_PORT ($(date))" >> "$API_LOG"
+echo "=== Python version check ===" >> "$API_LOG"
+$PYTHON_CMD --version >> "$API_LOG" 2>&1 || true
+echo "=== Minimal test server ===" >> "$API_LOG"
+nohup $PYTHON_CMD test_server.py >> "$API_LOG" 2>&1 &
+TEST_PID=$!
+sleep 2
+if kill -0 $TEST_PID 2>/dev/null; then
+    echo "Python test server started (PID $TEST_PID)" >> "$API_LOG"
+    # Test if it responds
+    curl -s http://127.0.0.1:$API_PORT/ >> "$API_LOG" 2>&1 || echo "curl test failed" >> "$API_LOG"
+    API_PID=$TEST_PID
+    step_done "API server (Python) started (port $API_PORT)"
+else
+    echo "Python test server FAILED" >> "$API_LOG"
+    tail -5 "$API_LOG" >&2
+    # Try the real server anyway
     nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
     API_PID=$!
     sleep 2
     if kill -0 $API_PID 2>/dev/null; then
         step_done "API server (Python) started (port $API_PORT)"
-    else
-        API_PID=""
-    fi
-fi
-
-# Fallback to Bash API if Python failed
-if [ -z "$API_PID" ]; then
-    echo "Starting Bash API on port $API_PORT ($(date))" >> "$API_LOG"
-    bash /app/api/server.sh >> "$API_LOG" 2>&1 &
-    API_PID=$!
-    sleep 1
-    if kill -0 $API_PID 2>/dev/null; then
-        step_done "API server (Bash) started (port $API_PORT)"
     else
         step_fail "API server failed to start"
     fi
