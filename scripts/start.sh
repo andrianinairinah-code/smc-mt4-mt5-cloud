@@ -157,16 +157,31 @@ fi
 step_start "Starting API server on port $API_PORT"
 cd /app/api
 
-echo "Starting API with $PYTHON_CMD on port $API_PORT ($(date))" >> "$API_LOG"
-nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
-API_PID=$!
-sleep 3
-if kill -0 $API_PID 2>/dev/null; then
-    step_done "API server started (port $API_PORT)"
-else
-    step_fail "API server failed to start - check $API_LOG"
-    # Log last few lines for diagnosis
-    tail -20 "$API_LOG" 2>/dev/null || true
+# Try Python API first
+API_PID=""
+if command -v $PYTHON_CMD &>/dev/null; then
+    echo "Starting Python API on port $API_PORT ($(date))" >> "$API_LOG"
+    nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
+    API_PID=$!
+    sleep 2
+    if kill -0 $API_PID 2>/dev/null; then
+        step_done "API server (Python) started (port $API_PORT)"
+    else
+        API_PID=""
+    fi
+fi
+
+# Fallback to Bash API if Python failed
+if [ -z "$API_PID" ]; then
+    echo "Starting Bash API on port $API_PORT ($(date))" >> "$API_LOG"
+    bash /app/api/server.sh >> "$API_LOG" 2>&1 &
+    API_PID=$!
+    sleep 1
+    if kill -0 $API_PID 2>/dev/null; then
+        step_done "API server (Bash) started (port $API_PORT)"
+    else
+        step_fail "API server failed to start"
+    fi
 fi
 
 # ============================================================
