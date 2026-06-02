@@ -12,7 +12,6 @@ RUN apt-get update && \
         wget \
         unzip \
         nginx \
-        psmisc \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-download generic MetaQuotes MT4 installer at build time

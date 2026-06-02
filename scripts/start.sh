@@ -142,12 +142,9 @@ step_done "noVNC started (internal port $NOVNC_PORT)"
 
 # Start nginx reverse proxy (serves noVNC on port 6901, API on 8080)
 step_start "Starting nginx reverse proxy on port $NGINX_PORT"
-# Diagnose: what is on port 6901 before we start?
-echo "=== Port $NGINX_PORT check ===" | tee -a "$WINE_LOG"
-ss -tlnp "sport = :$NGINX_PORT" 2>/dev/null >> "$WINE_LOG" || true
-# Kill any stale noVNC from base image entrypoint
-sudo fuser -k "${NGINX_PORT}/tcp" 2>/dev/null || true
-pkill -f novnc_proxy 2>/dev/null || true
+# Kill any stale noVNC from base image entrypoint (they block port 6901)
+pkill -f "novnc_proxy" 2>/dev/null || true
+pkill -f "websockify" 2>/dev/null || true
 sleep 1
 # Try nginx and log any error
 sudo nginx -c /etc/nginx/nginx.conf >>"$WINE_LOG" 2>&1
