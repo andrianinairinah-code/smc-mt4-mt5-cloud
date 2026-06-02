@@ -1,10 +1,17 @@
-import os, subprocess, glob, json, sys
+import os, subprocess, glob, json, sys, signal
 import socketserver
 import http.server
 import urllib.parse
 
 PORT = int(os.environ.get("PORT", 5000))
 WINEPREFIX = os.environ.get("WINEPREFIX", os.path.expanduser("~/.wine"))
+
+# Security: optional API token for write operations
+API_TOKEN = os.environ.get("API_TOKEN", "")
+DEPLOY_BRANCH = os.environ.get("DEPLOY_BRANCH", "main")
+
+# Global flag for graceful shutdown
+running = True
 
 MT5_EXPERTS = os.path.join(WINEPREFIX, "drive_c", "Program Files", "MetaTrader 5", "MQL5", "Experts")
 MT5_INCLUDES = os.path.join(WINEPREFIX, "drive_c", "Program Files", "MetaTrader 5", "MQL5", "Include")
@@ -60,34 +67,68 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path.rstrip('/') or '/'
         ct = self.headers.get('Content-Type', '')
+        auth = self.headers.get('Authorization', '').replace('Bearer ', '')
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length) if length > 0 else b''
         try:
-            if path == '/restart/mt5':
-                subprocess.run(["pkill", "-f", "terminal64"], check=False)
-                subprocess.run(["pkill", "-f", "metaeditor"], check=False)
-                subprocess.run(["wine", "C:\\Program Files\\MetaTrader 5\\terminal64.exe"], check=False)
-                r = json_resp({"status": "restarted", "target": "MT5"})
-            elif path == '/restart/mt4':
-                subprocess.run(["pkill", "-f", "terminal.exe"], check=False)
-                subprocess.run(["wine", "C:\\Program Files\\HFM MT4\\terminal.exe"], check=False)
-                r = json_resp({"status": "restarted", "target": "MT4"})
+            if path in ('/restart/mt5', '/restart/mt4'):
+                if API_TOKEN and auth != API_TOKEN:
+                    r = json_error("Unauthorized", 401)
+                    self.respond(*r)
+                    return
+                target = "mt5" if "/mt5" in path else "mt4"
+                pkill_pattern = "terminal64" if target == "mt5" else "terminal.exe"
+                subprocess.run(["pkill", "-f", pkill_pattern], check=False, timeout=10)
+                if target == "mt5":
+                    subprocess.run(["pkill", "-f", "metaeditor"], check=False, timeout=10)
+                wine_path = "C:\\Program Files\\MetaTrader 5\\terminal64.exe" if target == "mt5" else "C:\\Program Files\\HFM MT4\\terminal.exe"
+                subprocess.run(["wine", wine_path], check=False, timeout=30)
+                r = json_resp({"status": "restarted", "target": target.upper()})
             elif path == '/git-pull':
+                if API_TOKEN and auth != API_TOKEN:
+                    r = json_error("Unauthorized", 401)
+                    self.respond(*r)
+                    return
                 data = json.loads(body) if body else {}
                 repo = data.get("repo", "")
                 if not repo:
                     r = json_error("repo URL required")
                 else:
-                    dest = data.get("dest", "/tmp/smc-update")
+                    branch = data.get("branch", DEPLOY_BRANCH)
+                    import shutil
+                    dest = "/tmp/smc-update"
                     if os.path.exists(dest):
-                        subprocess.run(["git", "-C", dest, "pull"], check=True)
-                    else:
-                        subprocess.run(["git", "clone", repo, dest], check=True)
-                    for f in glob.glob(os.path.join(dest, "*.ex5")) + glob.glob(os.path.join(dest, "*.mq5")):
+                        shutil.rmtree(dest, ignore_errors=True)
+                    try:
+                        subprocess.run(
+                            ["git", "clone", "--depth", "1", "--branch", branch, repo, dest],
+                            check=True, capture_output=True, text=True, timeout=120
+                        )
+                    except Exception as e:
+                        r = json_error(f"git clone failed: {str(e)}", 500)
+                        self.respond(*r)
+                        return
+                    synced = {"mt5": [], "mt4": []}
+                    for f in glob.glob(os.path.join(dest, "*.ex5")):
                         with open(f, "rb") as src:
                             with open(os.path.join(MT5_EXPERTS, os.path.basename(f)), "wb") as dst:
                                 dst.write(src.read())
-                    r = json_resp({"status": "ok", "synced_from": repo})
+                        synced["mt5"].append(os.path.basename(f))
+                    for f in glob.glob(os.path.join(dest, "*.ex4")):
+                        with open(f, "rb") as src:
+                            with open(os.path.join(MT4_EXPERTS, os.path.basename(f)), "wb") as dst:
+                                dst.write(src.read())
+                        synced["mt4"].append(os.path.basename(f))
+                    for inc_dir in [os.path.join(dest, "CORE"), os.path.join(dest, "STRUCTURE")]:
+                        if os.path.isdir(inc_dir):
+                            for target_dir in [MT5_INCLUDES, MT4_INCLUDES]:
+                                smc_target = os.path.join(target_dir, "SMC")
+                                os.makedirs(smc_target, exist_ok=True)
+                                for f in glob.glob(os.path.join(inc_dir, "*.mqh")):
+                                    with open(f, "rb") as src:
+                                        with open(os.path.join(smc_target, os.path.basename(f)), "wb") as dst:
+                                            dst.write(src.read())
+                    r = json_resp({"status": "ok", "synced": synced, "from": repo, "branch": branch})
             else:
                 # File uploads - parse multipart manually
                 if 'multipart/form-data' in ct:
@@ -130,11 +171,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+def signal_handler(signum, frame):
+    global running
+    running = False
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
     try:
         srv = socketserver.ThreadingTCPServer(('0.0.0.0', PORT), Handler)
         srv.allow_reuse_address = True
-        srv.serve_forever()
+        while running:
+            srv.handle_request()
     except Exception as e:
         print(f"FATAL: {e}", flush=True)
         sys.exit(1)

@@ -241,15 +241,39 @@ fi
 # Step 8: Install HFM MT4 (if missing)
 # ============================================================
 if [ ! -f "$MT4_EXE" ]; then
-    step_start "Installing HFM MetaTrader 4 (this may take a few minutes)"
-    MT4_INSTALLER="/home/headless/mt4setup.exe"
-    wget -q "https://download.mql5.com/cdn/web/hfmarketslimited/mt4/hfmarketssv4setup.exe" -O "$MT4_INSTALLER" 2>>"$WINE_LOG"
-    wine "$MT4_INSTALLER" /verysilent /dir="C:\Program Files\HFM MT4" >>"$WINE_LOG" 2>&1 &
-    for i in $(seq 1 60); do
-        [ -f "$MT4_EXE" ] && break
-        sleep 5
-    done
-    rm -f "$MT4_INSTALLER"
+    step_start "Installing HFM MetaTrader 4 (may take several minutes)"
+    MT4_INSTALLER=""
+
+    # Try pre-downloaded installer first (from Docker build)
+    if [ -f "/home/headless/installers/mt4setup.exe" ]; then
+        MT4_INSTALLER="/home/headless/installers/mt4setup.exe"
+        echo "Using pre-downloaded installer" >> "$WINE_LOG"
+    fi
+
+    # If no pre-downloaded installer, try download with retry + fallback URL
+    if [ -z "$MT4_INSTALLER" ]; then
+        MT4_INSTALLER="/home/headless/mt4setup.exe"
+        for url in \
+            "https://download.mql5.com/cdn/web/hfmarketslimited/mt4/hfmarketssv4setup.exe" \
+            "https://download.mql5.com/cdn/web/hfm.markets/mt4/hfmarketssv4setup.exe"; do
+            echo "Trying MT4 download: $url" >> "$WINE_LOG"
+            if wget -q --timeout=30 --tries=3 "$url" -O "$MT4_INSTALLER" 2>>"$WINE_LOG"; then
+                echo "Downloaded MT4 installer from: $url" >> "$WINE_LOG"
+                break
+            fi
+            rm -f "$MT4_INSTALLER"
+        done
+    fi
+
+    if [ -f "$MT4_INSTALLER" ]; then
+        wine "$MT4_INSTALLER" /verysilent /dir="C:\Program Files\HFM MT4" >>"$WINE_LOG" 2>&1 &
+        for i in $(seq 1 120); do
+            [ -f "$MT4_EXE" ] && break
+            sleep 5
+        done
+        rm -f "$MT4_INSTALLER"
+    fi
+
     mkdir -p "/home/headless/.wine/drive_c/Program Files/HFM MT4/MQL4/Include/SMC"
     if [ -f "$MT4_EXE" ]; then
         step_done "HFM MetaTrader 4 installed"

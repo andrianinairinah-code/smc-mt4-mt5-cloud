@@ -17,7 +17,7 @@ max_replicas = 1
 sleep_enabled = false
 
 [service.healthcheck]
-path = "/"
-interval = 60
-timeout = 30
-retries = 3
+path = "/api/status"
+interval = 30
+timeout = 60
+retries = 5

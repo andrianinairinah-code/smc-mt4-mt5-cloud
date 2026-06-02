@@ -2,7 +2,7 @@ FROM hudsonventura/mt5:2.3
 
 USER root
 
-# Install Python3 + nginx + wget (no Flask needed - using stdlib http.server)
+# Install Python3 + nginx + wget + unzip
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
@@ -10,8 +10,19 @@ RUN apt-get update && \
         netcat-openbsd \
         curl \
         wget \
+        unzip \
         nginx \
     && rm -rf /var/lib/apt/lists/*
+
+# Pre-download MT4 HFM installer at build time (prevents CDN timeout at runtime)
+RUN mkdir -p /home/headless/installers && \
+    curl -fSL --retry 3 --retry-delay 5 \
+      "https://download.mql5.com/cdn/web/hfmarketslimited/mt4/hfmarketssv4setup.exe" \
+      -o /home/headless/installers/mt4setup.exe || \
+    curl -fSL --retry 3 --retry-delay 5 \
+      "https://download.mql5.com/cdn/web/hfm.markets/mt4/hfmarketssv4setup.exe" \
+      -o /home/headless/installers/mt4setup.exe || \
+    echo "WARNING: MT4 installer could not be pre-downloaded (will try at runtime)"
 
 # Copy API server
 COPY api/ /app/api/
