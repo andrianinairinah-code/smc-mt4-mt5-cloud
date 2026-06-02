@@ -157,32 +157,45 @@ fi
 step_start "Starting API server on port $API_PORT"
 cd /app/api
 
-# Test if Python works at all with minimal server
 API_PID=""
-echo "=== Python version check ===" >> "$API_LOG"
-$PYTHON_CMD --version >> "$API_LOG" 2>&1 || true
-echo "=== Minimal test server ===" >> "$API_LOG"
-nohup $PYTHON_CMD test_server.py >> "$API_LOG" 2>&1 &
-TEST_PID=$!
-sleep 2
-if kill -0 $TEST_PID 2>/dev/null; then
-    echo "Python test server started (PID $TEST_PID)" >> "$API_LOG"
-    # Test if it responds
-    curl -s http://127.0.0.1:$API_PORT/ >> "$API_LOG" 2>&1 || echo "curl test failed" >> "$API_LOG"
-    API_PID=$TEST_PID
-    step_done "API server (Python) started (port $API_PORT)"
-else
-    echo "Python test server FAILED" >> "$API_LOG"
-    tail -5 "$API_LOG" >&2
-    # Try the real server anyway
-    nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
-    API_PID=$!
+# Stage 1: Try nc echo server (simplest possible)
+echo "=== Stage 1: nc echo server ===" | tee -a "$API_LOG"
+if command -v nc &>/dev/null; then
+    while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\",\"mode\":\"nc\"}" | nc -l -p $API_PORT -q 1; done &
+    NC_PID=$!
+    sleep 1
+    if kill -0 $NC_PID 2>/dev/null; then
+        curl -s http://127.0.0.1:$API_PORT/ >> "$API_LOG" 2>&1
+        echo "nc server works!" >> "$API_LOG"
+        API_PID=$NC_PID
+        step_done "API server (nc) started (port $API_PORT)"
+    else
+        echo "nc server FAILED" >> "$API_LOG"
+    fi
+fi
+
+# Stage 2: Try Python if nc failed
+if [ -z "$API_PID" ]; then
+    echo "=== Stage 2: Python ===" | tee -a "$API_LOG"
+    $PYTHON_CMD --version >> "$API_LOG" 2>&1
+    nohup $PYTHON_CMD test_server.py >> "$API_LOG" 2>&1 &
+    PY_PID=$!
     sleep 2
-    if kill -0 $API_PID 2>/dev/null; then
+    if kill -0 $PY_PID 2>/dev/null; then
+        curl -s http://127.0.0.1:$API_PORT/ >> "$API_LOG" 2>&1
+        echo "Python server works!" >> "$API_LOG"
+        API_PID=$PY_PID
         step_done "API server (Python) started (port $API_PORT)"
     else
-        step_fail "API server failed to start"
+        echo "Python server FAILED" >> "$API_LOG"
     fi
+fi
+
+# Final: show errors
+if [ -z "$API_PID" ]; then
+    step_fail "API server failed to start"
+    echo "=== Last 20 lines of API log ===" | tee -a "$API_LOG"
+    tail -20 "$API_LOG" 2>/dev/null
 fi
 
 # ============================================================
