@@ -28,7 +28,9 @@ DEPTH=24
 
 MT5_DIR="/home/headless/.wine/drive_c/Program Files/MetaTrader 5"
 MT5_EXE="$MT5_DIR/terminal64.exe"
-MT4_DIR="/home/headless/.wine/drive_c/Program Files/HFM MT4"
+# Try both generic MT4 and HFM MT4 paths
+MT4_DIR="/home/headless/.wine/drive_c/Program Files/MetaTrader 4"
+MT4_DIR_HFM="/home/headless/.wine/drive_c/Program Files/HFM MT4"
 MT4_EXE="$MT4_DIR/terminal.exe"
 MT5_FILES_DIR="$MT5_DIR/MQL5/Files"
 
@@ -254,10 +256,9 @@ if [ ! -f "$MT4_EXE" ]; then
     if [ -z "$MT4_INSTALLER" ]; then
         MT4_INSTALLER="/home/headless/mt4setup.exe"
         for url in \
-            "https://download.mql5.com/cdn/web/hfmarketslimited/mt4/hfmarketssv4setup.exe" \
-            "https://download.mql5.com/cdn/web/hfm.markets/mt4/hfmarketssv4setup.exe"; do
+            "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt4/mt4setup.exe"; do
             echo "Trying MT4 download: $url" >> "$WINE_LOG"
-            if wget -q --timeout=30 --tries=3 "$url" -O "$MT4_INSTALLER" 2>>"$WINE_LOG"; then
+            if wget -q --timeout=60 --tries=3 "$url" -O "$MT4_INSTALLER" 2>>"$WINE_LOG"; then
                 echo "Downloaded MT4 installer from: $url" >> "$WINE_LOG"
                 break
             fi
@@ -266,24 +267,35 @@ if [ ! -f "$MT4_EXE" ]; then
     fi
 
     if [ -f "$MT4_INSTALLER" ]; then
-        wine "$MT4_INSTALLER" /verysilent /dir="C:\Program Files\HFM MT4" >>"$WINE_LOG" 2>&1 &
+        wine "$MT4_INSTALLER" /verysilent >>"$WINE_LOG" 2>&1 &
         for i in $(seq 1 120); do
             [ -f "$MT4_EXE" ] && break
+            [ -f "$MT4_DIR_HFM/terminal.exe" ] && { MT4_EXE="$MT4_DIR_HFM/terminal.exe"; break; }
             sleep 5
         done
         rm -f "$MT4_INSTALLER"
     fi
 
+    mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 4/MQL4/Include/SMC"
     mkdir -p "/home/headless/.wine/drive_c/Program Files/HFM MT4/MQL4/Include/SMC"
     if [ -f "$MT4_EXE" ]; then
-        step_done "HFM MetaTrader 4 installed"
+        step_done "MetaTrader 4 installed"
+    elif [ -f "$MT4_DIR_HFM/terminal.exe" ]; then
+        MT4_EXE="$MT4_DIR_HFM/terminal.exe"
+        step_done "MetaTrader 4 (HFM) installed"
     else
-        step_fail "HFM MT4 installation timed out"
+        step_fail "MT4 installation timed out"
     fi
 else
-    step_start "Checking HFM MetaTrader 4"
-    sleep 0.5
-    step_done "HFM MetaTrader 4 already installed"
+    step_start "Checking MetaTrader 4"
+    if [ -f "$MT4_EXE" ]; then
+        step_done "MetaTrader 4 already installed"
+    elif [ -f "$MT4_DIR_HFM/terminal.exe" ]; then
+        MT4_EXE="$MT4_DIR_HFM/terminal.exe"
+        step_done "MetaTrader 4 (HFM) already installed"
+    else
+        step_done "MetaTrader 4 not installed"
+    fi
 fi
 
 # ============================================================
