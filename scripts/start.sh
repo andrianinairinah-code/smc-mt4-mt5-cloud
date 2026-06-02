@@ -158,20 +158,23 @@ step_start "Starting API server on port $API_PORT"
 cd /app/api
 
 API_PID=""
-# Stage 1: Try nc echo server (simplest possible)
-echo "=== Stage 1: nc echo server ===" | tee -a "$API_LOG"
+# Stage 1: Check if port is already in use
+echo "=== Port $API_PORT check ===" >&2
+ss -tlnp 2>/dev/null | grep -E ":$API_PORT\b" >&2 || echo "Port $API_PORT is FREE" >&2
+netstat -tlnp 2>/dev/null | grep -E ":$API_PORT\b" >&2 || true
+
+# Stage 2: Try nc echo server (simplest possible)
+echo "=== Stage 2: nc echo server ===" >&2
 if command -v nc &>/dev/null; then
-    while true; do echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\",\"mode\":\"nc\"}" | nc -l -p $API_PORT -q 1; done &
+    # Start nc in background with explicit port binding
+    while true; do echo -ne "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\",\"mode\":\"nc\"}" | nc -l -p $API_PORT -q 1; done &
     NC_PID=$!
-    sleep 1
-    if kill -0 $NC_PID 2>/dev/null; then
-        curl -s http://127.0.0.1:$API_PORT/ >> "$API_LOG" 2>&1
-        echo "nc server works!" >> "$API_LOG"
-        API_PID=$NC_PID
-        step_done "API server (nc) started (port $API_PORT)"
-    else
-        echo "nc server FAILED" >> "$API_LOG"
-    fi
+    sleep 2
+    echo "NC PID=$NC_PID, kill test: $(kill -0 $NC_PID 2>&1; echo $?)" >&2
+    ss -tlnp 2>/dev/null | grep -E ":$API_PORT\b" >&2 || echo "Port $API_PORT NOT listened by nc" >&2
+    curl -s --connect-timeout 2 http://127.0.0.1:$API_PORT/ >&2 || echo "curl to port $API_PORT FAILED" >&2
+    API_PID=$NC_PID
+    step_done "API server (nc) started (port $API_PORT)"
 fi
 
 # Stage 2: Try Python if nc failed
