@@ -3,7 +3,7 @@ import socketserver
 import http.server
 import urllib.parse
 
-PORT = int(os.environ.get("PORT", 5000))
+PORT = int(os.environ.get("API_PORT", 8080))
 WINEPREFIX = os.environ.get("WINEPREFIX", os.path.expanduser("~/.wine"))
 
 # Security: optional API token for write operations

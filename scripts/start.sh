@@ -11,7 +11,7 @@ API_LOG="/tmp/api.log"
 VNC_PORT=5901
 NOVNC_PORT=6080
 NGINX_PORT=6901
-API_PORT=${PORT:-5000}
+API_PORT=8080
 
 # Determine Python command
 PYTHON_CMD=""
@@ -165,7 +165,7 @@ echo "=== API Stage 1: Python server ==="
 if command -v $PYTHON_CMD &>/dev/null; then
     echo "  Python version: $($PYTHON_CMD --version 2>&1)"
     cd /app/api
-    PORT=$API_PORT nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
+    API_PORT=$API_PORT nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
     PY_PID=$!
     sleep 3
     if kill -0 $PY_PID 2>/dev/null; then
@@ -383,7 +383,7 @@ while true; do
     # Check API
     if ! kill -0 $API_PID 2>/dev/null; then
         echo "API server died, restarting..."
-        cd /app/api && nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
+        cd /app/api && API_PORT=$API_PORT nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
         API_PID=$!
     fi
 

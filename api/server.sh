@@ -1,6 +1,6 @@
 #!/bin/bash
 # SMC Cloud API Server - uses Flask if available, else simple socat/nc echo
-API_PORT=${PORT:-5000}
+API_PORT=${API_PORT:-8080}
 
 log() { echo "[api] $$ $(date '+%H:%M:%S') $*"; }
 
