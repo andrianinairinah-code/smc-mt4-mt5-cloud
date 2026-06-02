@@ -158,60 +158,40 @@ step_start "Starting API server on port $API_PORT"
 cd /app/api
 
 API_PID=""
-# Stage 1: Check available commands
-echo "=== API Stage 1: Command check ==="
-for cmd in nc python3 curl ss netstat; do
-    if command -v $cmd &>/dev/null; then
-        echo "  $cmd: AVAILABLE"
+# Stage 1: Try Python API server (full functionality)
+echo "=== API Stage 1: Python server ==="
+if command -v $PYTHON_CMD &>/dev/null; then
+    echo "  Python version: $($PYTHON_CMD --version 2>&1)"
+    cd /app/api
+    PORT=$API_PORT nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
+    PY_PID=$!
+    sleep 3
+    if kill -0 $PY_PID 2>/dev/null; then
+        echo "  Python API PID=$PY_PID"
+        curl -s --connect-timeout 2 http://127.0.0.1:$API_PORT/status && echo "  Python API WORKS!" || echo "  curl check failed"
+        API_PID=$PY_PID
+        step_done "API server (Python) started (port $API_PORT)"
     else
-        echo "  $cmd: MISSING"
+        echo "  Python API DIED, trying nc fallback" >&2
     fi
-done
+fi
 
-# Stage 2: Check if port is already in use
-echo "=== API Stage 2: Port check ==="
-ss -tlnp 2>/dev/null | grep -E ":$API_PORT\b" && echo "Port $API_PORT in USE!" || echo "Port $API_PORT is FREE"
-
-# Stage 3: Try nc echo server
-echo "=== API Stage 3: nc server ==="
-if command -v nc &>/dev/null; then
+# Stage 2: Fallback to nc echo server if Python failed
+if [ -z "$API_PID" ] && command -v nc &>/dev/null; then
+    echo "=== API Stage 2: nc fallback ==="
     while true; do echo -ne "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\",\"mode\":\"nc\"}" | nc -l -p $API_PORT -q 1; done &
     NC_PID=$!
     sleep 2
-    echo "  NC PID=$NC_PID"
     if kill -0 $NC_PID 2>/dev/null; then
-        echo "  nc while loop running"
-        ss -tlnp 2>/dev/null | grep -E ":$API_PORT\b" || echo "  Port $API_PORT NOT listened"
-        curl -s --connect-timeout 2 http://127.0.0.1:$API_PORT/ && echo "  nc SERVER WORKS!" || echo "  curl FAILED"
+        curl -s --connect-timeout 2 http://127.0.0.1:$API_PORT/ && echo "  nc fallback WORKS!" || true
         API_PID=$NC_PID
-        step_done "API server (nc) started (port $API_PORT)"
-    else
-        echo "  nc while loop DIED"
+        step_done "API server (nc fallback) started (port $API_PORT)"
     fi
-else
-    echo "  nc NOT AVAILABLE, skipping"
 fi
 
-# Stage 4: Try Python if nc failed
+# Final check
 if [ -z "$API_PID" ]; then
-    echo "=== API Stage 4: Python ==="
-    if command -v $PYTHON_CMD &>/dev/null; then
-        echo "  Python version: $($PYTHON_CMD --version 2>&1)"
-        nohup $PYTHON_CMD /app/api/test_server.py > /dev/null 2>&1 &
-        PY_PID=$!
-        sleep 3
-        if kill -0 $PY_PID 2>/dev/null; then
-            echo "  Python PID=$PY_PID running"
-            ss -tlnp 2>/dev/null | grep -E ":$API_PORT\b" || echo "  Port $API_PORT NOT listened"
-            curl -s --connect-timeout 2 http://127.0.0.1:$API_PORT/ && echo "  Python WORKS!" || echo "  curl to Python FAILED"
-            API_PID=$PY_PID
-            step_done "API server (Python) started (port $API_PORT)"
-        else
-            echo "  Python server DIED"
-        fi
-    else
-        echo "  Python NOT AVAILABLE"
-    fi
+    step_fail "API server failed to start"
 fi
 
 # Final: show errors
