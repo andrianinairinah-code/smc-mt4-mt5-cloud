@@ -143,8 +143,11 @@ step_done "noVNC started (internal port $NOVNC_PORT)"
 # Start nginx reverse proxy (serves noVNC on port 6901, API on 8080)
 step_start "Starting nginx reverse proxy on port $NGINX_PORT"
 # Kill any stale noVNC from base image entrypoint (they block port 6901)
+# Then restart our noVNC on its internal port (pkill kills both instances)
 pkill -f "novnc_proxy" 2>/dev/null || true
 pkill -f "websockify" 2>/dev/null || true
+sleep 1
+/opt/noVNC/utils/novnc_proxy --vnc localhost:$VNC_PORT --listen $NOVNC_PORT --web /opt/noVNC >>"$WINE_LOG" 2>&1 &
 sleep 1
 # Try nginx and log any error
 sudo nginx -c /etc/nginx/nginx.conf >>"$WINE_LOG" 2>&1
