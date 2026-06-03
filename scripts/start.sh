@@ -212,15 +212,16 @@ if [ -z "$API_PID" ]; then
 fi
 
 # ============================================================
-# Step 6: Initialize Wine
+# Step 6: Initialize Wine (clean + fresh)
 # ============================================================
 step_start "Initializing Wine environment"
+# Clean stale Wine prefix to prevent disk space/inode issues
 if [ -d "$HOME/.wine" ]; then
-    sudo chown -R $(whoami):$(whoami) "$HOME/.wine" 2>>"$WINE_LOG" 2>/dev/null || true
+    sudo rm -rf "$HOME/.wine" 2>/dev/null || true
 fi
 WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -i >>"$WINE_LOG" 2>&1
 while pgrep -u $(whoami) wineboot >/dev/null 2>&1; do sleep 1; done
-step_done "Wine environment initialized"
+step_done "Wine environment initialized (fresh)"
 
 # ============================================================
 # Step 7: Install MetaTrader 5 in background (if missing)
@@ -235,7 +236,7 @@ if [ ! -f "$MT5_EXE" ]; then
     wine "$MT5_INSTALLER" /auto >>"$WINE_LOG" 2>&1 &
     MT5_INSTALL_PID=$!
     rm -f "$MT5_INSTALLER"
-    mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC"
+    sudo mkdir -p "$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC" 2>/dev/null || true
     step_done "MT5 installation started in background (PID $MT5_INSTALL_PID)"
 else
     step_start "Checking MetaTrader 5"
