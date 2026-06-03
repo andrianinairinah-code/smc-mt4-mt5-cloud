@@ -217,7 +217,7 @@ fi
 step_start "Initializing Wine environment"
 # Clean stale Wine prefix to prevent disk space/inode issues
 rm -rf "$HOME/.wine" 2>/dev/null || true
-df -h "$HOME/.wine" 2>/dev/null | tail -1
+mkdir -p "$HOME/.wine" 2>/dev/null || true
 echo "Volume cleaned, creating fresh Wine prefix"
 WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -i >>"$WINE_LOG" 2>&1
 while pgrep -u $(whoami) wineboot >/dev/null 2>&1; do sleep 1; done
@@ -235,8 +235,7 @@ if [ ! -f "$MT5_EXE" ]; then
     wait $WGET_PID 2>/dev/null || true
     wine "$MT5_INSTALLER" /auto >>"$WINE_LOG" 2>&1 &
     MT5_INSTALL_PID=$!
-    rm -f "$MT5_INSTALLER"
-    sudo mkdir -p "$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC" 2>/dev/null || true
+    mkdir -p "$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC"
     step_done "MT5 installation started in background (PID $MT5_INSTALL_PID)"
 else
     step_start "Checking MetaTrader 5"
@@ -283,7 +282,7 @@ fi
 # ============================================================
 step_start "Checking servers.dat"
 SERVERS_DAT="$MT5_DIR/Config/servers.dat"
-mkdir -p "$MT5_DIR/Config"
+sudo mkdir -p "$MT5_DIR/Config"
 if [ ! -f "$SERVERS_DAT" ] || [ "$(stat -c%s "$SERVERS_DAT" 2>/dev/null || echo 0)" -lt 1048576 ]; then
     wget -q "https://github.com/hudsonventura/MT5_Docker/raw/refs/heads/main/servers.dat" -O "$SERVERS_DAT" 2>>"$WINE_LOG"
 fi
