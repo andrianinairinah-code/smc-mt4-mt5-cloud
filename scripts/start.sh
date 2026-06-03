@@ -86,9 +86,9 @@ step_fail() {
 # ============================================================
 # Python proxy handles: healthcheck (/), API (/api/), noVNC (/)
 # No nginx needed - one process serving everything on 6901
-$PYTHON_CMD /app/api/proxy.py >> /tmp/proxy.log 2>&1 &
+$PYTHON_CMD -u /app/api/proxy.py &
 PROXY_PID=$!
-echo "   [0/11] Proxy server started on port $PROXY_PORT (PID=$PROXY_PID)"
+echo "Proxy server started on port $PROXY_PORT (PID=$PROXY_PID)"
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
