@@ -82,15 +82,13 @@ step_fail() {
 }
 
 # ============================================================
-# Step 0: Start healthcheck server on port 6901
+# Step 0: Start proxy (healthcheck + API/noVNC routing) on port 6901
 # ============================================================
-# Simple Python HTTP server for Railway healthcheck
-# Serves healthcheck on port 6901 (always returns 200)
-$PYTHON_CMD -u -m http.server $PROXY_PORT --bind 0.0.0.0 &
+$PYTHON_CMD -u /app/api/proxy.py &
 PROXY_PID=$!
-echo "Healthcheck server started on port $PROXY_PORT (PID=$PROXY_PID)"
+echo "Proxy started on port $PROXY_PORT (PID=$PROXY_PID)"
 sleep 1
-curl -s http://127.0.0.1:6901/ > /dev/null && echo "  Port 6901 reachable from localhost" || echo "  WARN: Port 6901 NOT reachable from localhost"
+curl -s http://127.0.0.1:6901/ > /dev/null && echo "  Port 6901 OK" || echo "  WARN: Port 6901 not reachable"
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"

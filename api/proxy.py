@@ -94,8 +94,8 @@ if __name__ == '__main__':
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
     try:
+        socketserver.ThreadingTCPServer.allow_reuse_address = True
         srv = socketserver.ThreadingTCPServer(('0.0.0.0', PORT), ProxyHandler)
-        srv.allow_reuse_address = True
         print(f"Proxy server started on port {PORT}", flush=True)
         while running:
             srv.handle_request()
