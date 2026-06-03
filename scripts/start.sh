@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# SMC Cloud - MT5 + MT4 + API Startup Script
+# SMC Cloud - MT5 + API Startup Script
 # ============================================================
 
 WINE_LOG="/tmp/wine.log"
@@ -28,33 +28,13 @@ DEPTH=24
 
 MT5_DIR="/home/headless/.wine/drive_c/Program Files/MetaTrader 5"
 MT5_EXE="$MT5_DIR/terminal64.exe"
-MT4_DIR_BASE="/home/headless/.wine/drive_c/Program Files/MetaTrader 4"
-MT4_DIR_HFM="/home/headless/.wine/drive_c/Program Files/HFM MT4"
-MT4_DIR="$MT4_DIR_BASE"
-MT4_EXE="$MT4_DIR/terminal.exe"
 MT5_FILES_DIR="$MT5_DIR/MQL5/Files"
-
-# Resolve MT4 path dynamically: check both possible install directories
-resolve_mt4() {
-    local mt4="$MT4_DIR_BASE/terminal.exe"
-    local hfm="$MT4_DIR_HFM/terminal.exe"
-    if [ -f "$mt4" ]; then
-        MT4_EXE="$mt4"
-        MT4_DIR="$MT4_DIR_BASE"
-        return 0
-    elif [ -f "$hfm" ]; then
-        MT4_EXE="$hfm"
-        MT4_DIR="$MT4_DIR_HFM"
-        return 0
-    fi
-    return 1
-}
 
 # ============================================================
 # Step display functions (from original)
 # ============================================================
 STEP_NUM=0
-TOTAL_STEPS=13
+TOTAL_STEPS=11
 SPINNER_PID=""
 
 spinner_start() {
@@ -132,11 +112,11 @@ except OSError as e:
     s.serve_forever()
 " &
 HEALTH_PID=$!
-echo "   [0/13] Healthcheck server started (PID=$HEALTH_PID)"
+echo "   [0/11] Healthcheck server started (PID=$HEALTH_PID)"
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
-echo "  ║   SMC Cloud - MT5 + MT4 + API               ║"
+echo "  ║   SMC Cloud - MT5 + API                     ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
 
@@ -330,60 +310,7 @@ else
 fi
 
 # ============================================================
-# Step 8: Install HFM MT4 (if missing)
-# ============================================================
-if [ ! -f "$MT4_EXE" ]; then
-    step_start "Installing HFM MetaTrader 4 (may take several minutes)"
-    MT4_INSTALLER=""
-
-    # Try pre-downloaded installer first (from Docker build)
-    if [ -f "/home/headless/installers/mt4setup.exe" ]; then
-        MT4_INSTALLER="/home/headless/installers/mt4setup.exe"
-        echo "Using pre-downloaded installer" >> "$WINE_LOG"
-    fi
-
-    # If no pre-downloaded installer, try download with retry + fallback URL
-    if [ -z "$MT4_INSTALLER" ]; then
-        MT4_INSTALLER="/home/headless/mt4setup.exe"
-        for url in \
-            "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt4/mt4setup.exe"; do
-            echo "Trying MT4 download: $url" >> "$WINE_LOG"
-            if wget -q --timeout=60 --tries=3 "$url" -O "$MT4_INSTALLER" 2>>"$WINE_LOG"; then
-                echo "Downloaded MT4 installer from: $url" >> "$WINE_LOG"
-                break
-            fi
-            rm -f "$MT4_INSTALLER"
-        done
-    fi
-
-    if [ -f "$MT4_INSTALLER" ]; then
-        wine "$MT4_INSTALLER" /verysilent >>"$WINE_LOG" 2>&1 &
-        for i in $(seq 1 120); do
-            resolve_mt4 && break
-            sleep 5
-        done
-        rm -f "$MT4_INSTALLER"
-    fi
-
-    # Ensure SMC include directory exists at whichever path MT4 was installed to
-    resolve_mt4
-    mkdir -p "$MT4_DIR/MQL4/Include/SMC"
-    if resolve_mt4; then
-        step_done "MetaTrader 4 installed ($MT4_DIR)"
-    else
-        step_fail "MT4 installation timed out"
-    fi
-else
-    step_start "Checking MetaTrader 4"
-    if resolve_mt4; then
-        step_done "MetaTrader 4 already installed ($MT4_DIR)"
-    else
-        step_done "MetaTrader 4 not installed"
-    fi
-fi
-
-# ============================================================
-# Step 9: Start MetaTrader 5
+# Step 8: Start MetaTrader 5
 # ============================================================
 step_start "Starting MetaTrader 5"
 wineserver -p >>"$WINE_LOG" 2>&1 &
@@ -404,27 +331,7 @@ else
 fi
 
 # ============================================================
-# Step 10: Start MetaTrader 4
-# ============================================================
-step_start "Starting MetaTrader 4"
-resolve_mt4
-if [ -f "$MT4_EXE" ]; then
-    wine "$MT4_EXE" >> "$WINE_LOG" 2>&1 &
-    for i in $(seq 1 20); do
-        if pgrep -f "terminal.exe" > /dev/null 2>&1; then break; fi
-        sleep 2
-    done
-    if pgrep -f "terminal.exe" > /dev/null 2>&1; then
-        step_done "MetaTrader 4 started ($MT4_DIR)"
-    else
-        step_fail "MetaTrader 4 failed to start ($MT4_EXE)"
-    fi
-else
-    step_fail "MetaTrader 4 not found (checked: $MT4_DIR_BASE and $MT4_DIR_HFM)"
-fi
-
-# ============================================================
-# Step 11: Configure servers.dat
+# Step 9: Configure servers.dat
 # ============================================================
 step_start "Checking servers.dat"
 SERVERS_DAT="$MT5_DIR/Config/servers.dat"
@@ -448,7 +355,6 @@ echo "  ║  API:   http://localhost:$NGINX_PORT/api/           ║"
 echo "  ║  Pass:  ${VNC_PW:-password}                      ║"
 echo "  ╠══════════════════════════════════════════════╣"
 echo "  ║  MT5: $MT5_DIR          ║"
-echo "  ║  MT4: $MT4_DIR          ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
 echo "  Endpoints:"
@@ -480,16 +386,6 @@ while true; do
     if [ "$MT5_OK" = false ] && [ -f "$MT5_EXE" ]; then
         echo "MT5 died, restarting..."
         wine "$MT5_EXE" /config:"$MT5_FILES_DIR\mt5.ini" >> "$WINE_LOG" 2>&1 &
-    fi
-
-    # Check MT4
-    MT4_OK=false
-    if pgrep -f "terminal.exe" > /dev/null 2>&1; then
-        MT4_OK=true
-    fi
-    if [ "$MT4_OK" = false ]; then
-        resolve_mt4 && echo "MT4 died, restarting from $MT4_EXE..." && \
-            wine "$MT4_EXE" >> "$WINE_LOG" 2>&1 &
     fi
 
     sleep 15

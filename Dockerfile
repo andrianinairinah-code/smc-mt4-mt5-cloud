@@ -29,10 +29,8 @@ RUN chmod 644 /etc/nginx/nginx.conf
 USER headless
 WORKDIR /home/headless
 
-# Create SMC include directories for MT5 and MT4 (will be populated at runtime)
-RUN mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC" && \
-    mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 4/MQL4/Include/SMC" && \
-    mkdir -p "/home/headless/.wine/drive_c/Program Files/HFM MT4/MQL4/Include/SMC" 2>/dev/null; true
+# Create SMC include directories for MT5 (will be populated at runtime)
+RUN mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC"
 
 # Copy custom start script
 COPY scripts/start.sh /start.sh
