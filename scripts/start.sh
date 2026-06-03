@@ -216,9 +216,9 @@ fi
 # ============================================================
 step_start "Initializing Wine environment"
 # Clean stale Wine prefix to prevent disk space/inode issues
-if [ -d "$HOME/.wine" ]; then
-    sudo rm -rf "$HOME/.wine" 2>/dev/null || true
-fi
+rm -rf "$HOME/.wine" 2>/dev/null || true
+df -h "$HOME/.wine" 2>/dev/null | tail -1
+echo "Volume cleaned, creating fresh Wine prefix"
 WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -i >>"$WINE_LOG" 2>&1
 while pgrep -u $(whoami) wineboot >/dev/null 2>&1; do sleep 1; done
 step_done "Wine environment initialized (fresh)"
