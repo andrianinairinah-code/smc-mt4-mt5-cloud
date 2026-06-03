@@ -1,9 +1,9 @@
 FROM hudsonventura/mt5:2.3
+ARG CACHEBUST=20260603
 ENTRYPOINT []
 
 USER root
 
-# Install Python3 + nginx + wget + unzip
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
@@ -14,10 +14,6 @@ RUN apt-get update && \
         unzip \
         nginx \
     && rm -rf /var/lib/apt/lists/*
-
-# MT4 installer downloaded at runtime (not here) to avoid
-# build-time network failures and unpredictable build duration.
-# Railway build timeout is ~10 min; Wine + MT5 base image alone takes ~5-8 min.
 
 # Copy API server
 COPY api/ /app/api/
@@ -36,6 +32,6 @@ RUN mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Inclu
 COPY scripts/start.sh /start.sh
 RUN sudo chmod +x /start.sh
 
-EXPOSE 5901 6901 5000
+EXPOSE 5901 6901
 
 CMD ["/bin/bash", "/start.sh"]

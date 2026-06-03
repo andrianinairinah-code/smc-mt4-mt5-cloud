@@ -359,7 +359,6 @@ echo "  ╚═══════════════════════
 echo ""
 echo "  Endpoints:"
 echo "    POST /upload/ea      - Upload MT5 EA (.ex5)"
-echo "    POST /upload/ea4     - Upload MT4 EA (.ex4)"
 echo "    POST /upload/include - Upload .mqh include"
 echo "    GET  /status         - Service status"
 echo "    GET  /files/ea       - List installed EAs"
