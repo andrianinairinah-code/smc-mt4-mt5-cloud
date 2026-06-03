@@ -28,17 +28,33 @@ DEPTH=24
 
 MT5_DIR="/home/headless/.wine/drive_c/Program Files/MetaTrader 5"
 MT5_EXE="$MT5_DIR/terminal64.exe"
-# Try both generic MT4 and HFM MT4 paths
-MT4_DIR="/home/headless/.wine/drive_c/Program Files/MetaTrader 4"
+MT4_DIR_BASE="/home/headless/.wine/drive_c/Program Files/MetaTrader 4"
 MT4_DIR_HFM="/home/headless/.wine/drive_c/Program Files/HFM MT4"
+MT4_DIR="$MT4_DIR_BASE"
 MT4_EXE="$MT4_DIR/terminal.exe"
 MT5_FILES_DIR="$MT5_DIR/MQL5/Files"
+
+# Resolve MT4 path dynamically: check both possible install directories
+resolve_mt4() {
+    local mt4="$MT4_DIR_BASE/terminal.exe"
+    local hfm="$MT4_DIR_HFM/terminal.exe"
+    if [ -f "$mt4" ]; then
+        MT4_EXE="$mt4"
+        MT4_DIR="$MT4_DIR_BASE"
+        return 0
+    elif [ -f "$hfm" ]; then
+        MT4_EXE="$hfm"
+        MT4_DIR="$MT4_DIR_HFM"
+        return 0
+    fi
+    return 1
+}
 
 # ============================================================
 # Step display functions (from original)
 # ============================================================
 STEP_NUM=0
-TOTAL_STEPS=12
+TOTAL_STEPS=13
 SPINNER_PID=""
 
 spinner_start() {
@@ -84,6 +100,39 @@ step_fail() {
     spinner_stop
     printf "\033[1A\r [%d/%d] ✘  %-45s\n" "$STEP_NUM" "$TOTAL_STEPS" "$1"
 }
+
+# ============================================================
+# Step 0: Immediate healthcheck server for Railway
+# ============================================================
+# MUST start before anything else - Railway healthcheck hits port 6901
+# within seconds of container start. NoVNC/nginx aren't ready yet.
+python3 -c "
+import http.server, socketserver, json, os, sys
+
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type','application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({'status':'ok','startup':'booting'}).encode())
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+    def log_message(self,*a): pass
+
+try:
+    s = socketserver.TCPServer(('0.0.0.0', 6901), H)
+    s.allow_reuse_address = True
+    s.serve_forever()
+except OSError as e:
+    # Port 6901 might already be taken by base image's noVNC
+    print(f'Healthcheck port 6901 busy: {e}', file=sys.stderr)
+    # Try alternate port
+    s = socketserver.TCPServer(('0.0.0.0', 8081), H)
+    s.serve_forever()
+" &
+HEALTH_PID=$!
+echo "   [0/13] Healthcheck server started (PID=$HEALTH_PID)"
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
@@ -133,33 +182,64 @@ sleep 1
 step_done "Desktop environment started"
 
 # ============================================================
-# Step 4: Start noVNC
+# Step 4: Start noVNC + nginx reverse proxy
 # ============================================================
-step_start "Starting noVNC web client"
-/opt/noVNC/utils/novnc_proxy --vnc localhost:$VNC_PORT --listen $NOVNC_PORT --web /opt/noVNC >>"$WINE_LOG" 2>&1 &
-sleep 1
-step_done "noVNC started (internal port $NOVNC_PORT)"
+step_start "Starting noVNC + nginx"
 
-# Start nginx reverse proxy (serves noVNC on port 6901, API on 8080)
-step_start "Starting nginx reverse proxy on port $NGINX_PORT"
-# Kill any stale noVNC from base image entrypoint (they block port 6901)
-# Then restart our noVNC on its internal port (pkill kills both instances)
-pkill -f "novnc_proxy" 2>/dev/null || true
-pkill -f "websockify" 2>/dev/null || true
-sleep 1
-/opt/noVNC/utils/novnc_proxy --vnc localhost:$VNC_PORT --listen $NOVNC_PORT --web /opt/noVNC >>"$WINE_LOG" 2>&1 &
-sleep 1
-# Try nginx and log any error
-sudo nginx -c /etc/nginx/nginx.conf >>"$WINE_LOG" 2>&1
-NGINX_EXIT=$?
-echo "=== nginx exit code: $NGINX_EXIT ===" | tee -a "$WINE_LOG"
+# Kill ALL stale novnc/websockify from base image entrypoint (blocks port 6901)
+# SIGKILL (-9) ensures they die immediately vs SIGTERM which can linger
+pkill -9 -f "novnc_proxy" 2>/dev/null || true
+pkill -9 -f "websockify" 2>/dev/null || true
 sleep 2
-if [ $NGINX_EXIT -eq 0 ] && pgrep -f "nginx: master" > /dev/null 2>&1; then
-    step_done "nginx reverse proxy started (port $NGINX_PORT)"
+
+# Kill healthcheck server that was holding port 6901 (started in Step 0)
+kill $HEALTH_PID 2>/dev/null || true
+
+# Wait for port 6901 to be fully released (TIME_WAIT can delay rebind)
+for i in {1..10}; do
+    if ! nc -z 127.0.0.1 $NGINX_PORT 2>/dev/null; then
+        echo "Port $NGINX_PORT free after ${i}s" >> "$WINE_LOG"
+        break
+    fi
+    sleep 1
+done
+
+# Start noVNC on internal port 6080 (NOT 6901 — nginx will proxy there)
+/opt/noVNC/utils/novnc_proxy --vnc localhost:$VNC_PORT --listen $NOVNC_PORT --web /opt/noVNC >>"$WINE_LOG" 2>&1 &
+NOVNC_PID=$!
+
+# Wait for 6080 to be listening before starting nginx (up to 10s)
+for i in {1..10}; do
+    if nc -z 127.0.0.1 $NOVNC_PORT 2>/dev/null; then
+        echo "noVNC listening on port $NOVNC_PORT after ${i}s" >> "$WINE_LOG"
+        break
+    fi
+    sleep 1
+done
+
+# Start nginx on port 6901 with retry logic
+NGINX_OK=false
+for attempt in {1..5}; do
+    sudo nginx -c /etc/nginx/nginx.conf >>"$WINE_LOG" 2>&1
+    NGINX_EXIT=$?
+    sleep 1
+    if [ $NGINX_EXIT -eq 0 ] && pgrep -f "nginx: master" > /dev/null 2>&1; then
+        echo "nginx started on attempt $attempt" >> "$WINE_LOG"
+        NGINX_OK=true
+        break
+    fi
+    # Kill stale nginx before retry
+    sudo nginx -s quit 2>/dev/null || true
+    pkill -9 -f "nginx" 2>/dev/null || true
+    sleep 2
+    echo "nginx attempt $attempt failed (exit $NGINX_EXIT), retrying..." >> "$WINE_LOG"
+done
+
+if [ "$NGINX_OK" = true ]; then
+    step_done "noVNC + nginx ready (port $NGINX_PORT → noVNC:$NOVNC_PORT, API:$API_PORT)"
 else
-    step_fail "nginx failed to start (exit $NGINX_EXIT), trying noVNC directly"
-    # Fallback: kill stale noVNC, start fresh on Railway port
-    pkill -f novnc_proxy 2>/dev/null; sleep 1
+    step_fail "nginx failed after 5 attempts, starting noVNC directly on $NGINX_PORT"
+    pkill -9 -f "novnc_proxy" 2>/dev/null; sleep 1
     /opt/noVNC/utils/novnc_proxy --vnc localhost:$VNC_PORT --listen $NGINX_PORT --web /opt/noVNC >>"$WINE_LOG" 2>&1 &
 fi
 
@@ -279,30 +359,24 @@ if [ ! -f "$MT4_EXE" ]; then
     if [ -f "$MT4_INSTALLER" ]; then
         wine "$MT4_INSTALLER" /verysilent >>"$WINE_LOG" 2>&1 &
         for i in $(seq 1 120); do
-            [ -f "$MT4_EXE" ] && break
-            [ -f "$MT4_DIR_HFM/terminal.exe" ] && { MT4_EXE="$MT4_DIR_HFM/terminal.exe"; break; }
+            resolve_mt4 && break
             sleep 5
         done
         rm -f "$MT4_INSTALLER"
     fi
 
-    mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 4/MQL4/Include/SMC"
-    mkdir -p "/home/headless/.wine/drive_c/Program Files/HFM MT4/MQL4/Include/SMC"
-    if [ -f "$MT4_EXE" ]; then
-        step_done "MetaTrader 4 installed"
-    elif [ -f "$MT4_DIR_HFM/terminal.exe" ]; then
-        MT4_EXE="$MT4_DIR_HFM/terminal.exe"
-        step_done "MetaTrader 4 (HFM) installed"
+    # Ensure SMC include directory exists at whichever path MT4 was installed to
+    resolve_mt4
+    mkdir -p "$MT4_DIR/MQL4/Include/SMC"
+    if resolve_mt4; then
+        step_done "MetaTrader 4 installed ($MT4_DIR)"
     else
         step_fail "MT4 installation timed out"
     fi
 else
     step_start "Checking MetaTrader 4"
-    if [ -f "$MT4_EXE" ]; then
-        step_done "MetaTrader 4 already installed"
-    elif [ -f "$MT4_DIR_HFM/terminal.exe" ]; then
-        MT4_EXE="$MT4_DIR_HFM/terminal.exe"
-        step_done "MetaTrader 4 (HFM) already installed"
+    if resolve_mt4; then
+        step_done "MetaTrader 4 already installed ($MT4_DIR)"
     else
         step_done "MetaTrader 4 not installed"
     fi
@@ -330,9 +404,10 @@ else
 fi
 
 # ============================================================
-# Step 10: Start HFM MT4
+# Step 10: Start MetaTrader 4
 # ============================================================
-step_start "Starting HFM MetaTrader 4"
+step_start "Starting MetaTrader 4"
+resolve_mt4
 if [ -f "$MT4_EXE" ]; then
     wine "$MT4_EXE" >> "$WINE_LOG" 2>&1 &
     for i in $(seq 1 20); do
@@ -340,12 +415,12 @@ if [ -f "$MT4_EXE" ]; then
         sleep 2
     done
     if pgrep -f "terminal.exe" > /dev/null 2>&1; then
-        step_done "HFM MetaTrader 4 started"
+        step_done "MetaTrader 4 started ($MT4_DIR)"
     else
-        step_fail "HFM MT4 failed to start"
+        step_fail "MetaTrader 4 failed to start ($MT4_EXE)"
     fi
 else
-    step_fail "HFM MT4 not found at $MT4_EXE"
+    step_fail "MetaTrader 4 not found (checked: $MT4_DIR_BASE and $MT4_DIR_HFM)"
 fi
 
 # ============================================================
@@ -412,9 +487,9 @@ while true; do
     if pgrep -f "terminal.exe" > /dev/null 2>&1; then
         MT4_OK=true
     fi
-    if [ "$MT4_OK" = false ] && [ -f "$MT4_EXE" ]; then
-        echo "MT4 died, restarting..."
-        wine "$MT4_EXE" >> "$WINE_LOG" 2>&1 &
+    if [ "$MT4_OK" = false ]; then
+        resolve_mt4 && echo "MT4 died, restarting from $MT4_EXE..." && \
+            wine "$MT4_EXE" >> "$WINE_LOG" 2>&1 &
     fi
 
     sleep 15

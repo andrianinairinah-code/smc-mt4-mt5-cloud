@@ -1,4 +1,5 @@
 FROM hudsonventura/mt5:2.3
+ENTRYPOINT []
 
 USER root
 
@@ -14,16 +15,9 @@ RUN apt-get update && \
         nginx \
     && rm -rf /var/lib/apt/lists/*
 
-# Pre-download generic MetaQuotes MT4 installer at build time
-# (HFM-branded CDN is blocked on Railway; generic MT4 works with any broker)
-RUN mkdir -p /home/headless/installers && \
-    if curl -fSL --retry 3 --retry-delay 5 \
-      "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt4/mt4setup.exe" \
-      -o /home/headless/installers/mt4setup.exe; then \
-        echo "MT4 installer pre-downloaded OK"; \
-    else \
-        echo "WARNING: MT4 installer pre-download failed (will retry at runtime)"; \
-    fi
+# MT4 installer downloaded at runtime (not here) to avoid
+# build-time network failures and unpredictable build duration.
+# Railway build timeout is ~10 min; Wine + MT5 base image alone takes ~5-8 min.
 
 # Copy API server
 COPY api/ /app/api/

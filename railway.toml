@@ -16,8 +16,11 @@ min_replicas = 1
 max_replicas = 1
 sleep_enabled = false
 
-[service.healthcheck]
-path = "/"
-interval = 30
-timeout = 60
-retries = 5
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 600
+restartPolicyType = "ALWAYS"
+restartPolicyMaxRetries = 10
