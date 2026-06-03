@@ -285,24 +285,20 @@ while pgrep -u $(whoami) wineboot >/dev/null 2>&1; do sleep 1; done
 step_done "Wine environment initialized"
 
 # ============================================================
-# Step 7: Install MetaTrader 5 (if missing)
+# Step 7: Install MetaTrader 5 in background (if missing)
 # ============================================================
+MT5_INSTALL_PID=""
 if [ ! -f "$MT5_EXE" ]; then
-    step_start "Installing MetaTrader 5 (this may take a few minutes)"
+    step_start "Installing MetaTrader 5 in background"
     MT5_INSTALLER="/home/headless/mt5setup.exe"
-    wget -q "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -O "$MT5_INSTALLER" 2>>"$WINE_LOG"
+    wget -q "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -O "$MT5_INSTALLER" 2>>"$WINE_LOG" &
+    WGET_PID=$!
+    wait $WGET_PID 2>/dev/null || true
     wine "$MT5_INSTALLER" /auto >>"$WINE_LOG" 2>&1 &
-    for i in $(seq 1 120); do
-        [ -f "$MT5_EXE" ] && break
-        sleep 5
-    done
+    MT5_INSTALL_PID=$!
     rm -f "$MT5_INSTALLER"
     mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC"
-    if [ -f "$MT5_EXE" ]; then
-        step_done "MetaTrader 5 installed"
-    else
-        step_fail "MetaTrader 5 installation timed out"
-    fi
+    step_done "MT5 installation started in background (PID $MT5_INSTALL_PID)"
 else
     step_start "Checking MetaTrader 5"
     sleep 0.5
@@ -312,7 +308,20 @@ fi
 # ============================================================
 # Step 8: Start MetaTrader 5
 # ============================================================
-step_start "Starting MetaTrader 5"
+step_start "Waiting for MT5 installation + starting MT5"
+
+# Wait for background MT5 installer if still running
+if [ -n "$MT5_INSTALL_PID" ] && kill -0 $MT5_INSTALL_PID 2>/dev/null; then
+    for i in $(seq 1 120); do
+        [ -f "$MT5_EXE" ] && break
+        if ! kill -0 $MT5_INSTALL_PID 2>/dev/null; then
+            sleep 2
+            break
+        fi
+        sleep 5
+    done
+fi
+
 wineserver -p >>"$WINE_LOG" 2>&1 &
 
 if [ -f "$MT5_EXE" ]; then
@@ -375,6 +384,16 @@ while true; do
         echo "API server died, restarting..."
         cd /app/api && API_PORT=$API_PORT nohup $PYTHON_CMD server.py >> "$API_LOG" 2>&1 &
         API_PID=$!
+    fi
+
+    # Check MT5 installer progress
+    if [ -n "$MT5_INSTALL_PID" ] && ! kill -0 $MT5_INSTALL_PID 2>/dev/null; then
+        if [ -f "$MT5_EXE" ]; then
+            echo "MT5 installation completed" >> "$WINE_LOG"
+        else
+            echo "MT5 installer process ended, but terminal64.exe not found" >> "$WINE_LOG"
+        fi
+        MT5_INSTALL_PID=""
     fi
 
     # Check MT5
