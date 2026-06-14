@@ -20,7 +20,11 @@ sleep_enabled = false
 builder = "DOCKERFILE"
 
 [deploy]
+startCommand = "/bin/bash /start.sh"
 healthcheckPath = "/"
-healthcheckTimeout = 600
+healthcheckTimeout = 120
 restartPolicyType = "ALWAYS"
-restartPolicyMaxRetries = 10
+restartPolicyMaxRetries = 5
+
+[service]
+mem_limit = 2048

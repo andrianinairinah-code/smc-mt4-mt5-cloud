@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # ============================================================
 # SMC Cloud - MT5 + API Startup Script
 # ============================================================
@@ -87,8 +88,17 @@ step_fail() {
 $PYTHON_CMD -u /app/api/proxy.py &
 PROXY_PID=$!
 echo "Proxy started on port $PROXY_PORT (PID=$PROXY_PID)"
-sleep 1
-curl -s http://127.0.0.1:6901/ > /dev/null && echo "  Port 6901 OK" || echo "  WARN: Port 6901 not reachable"
+for i in $(seq 1 10); do
+    if curl -s http://127.0.0.1:6901/ > /dev/null 2>&1; then
+        echo "  Port 6901 OK after ${i}s"
+        break
+    fi
+    sleep 1
+done
+if ! curl -s http://127.0.0.1:6901/ > /dev/null 2>&1; then
+    echo "  FATAL: Port 6901 not reachable after 10s"
+    exit 1
+fi
 
 echo ""
 echo "  ╔══════════════════════════════════════════════╗"
@@ -345,4 +355,4 @@ while true; do
     fi
 
     sleep 15
-done
+done | tee -a "$WINE_LOG"

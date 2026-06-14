@@ -1,26 +1,20 @@
 FROM hudsonventura/mt5:2.3
 ARG CACHEBUST=20260603-2
-ENTRYPOINT []
 
 USER root
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y \
         python3 \
         python3-pip \
         netcat-openbsd \
         curl \
-        wget \
         unzip \
-        nginx \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy API server
 COPY api/ /app/api/
-
-# Copy nginx config
-COPY nginx.conf /etc/nginx/nginx.conf
-RUN chmod 644 /etc/nginx/nginx.conf
+RUN pip3 install -r /app/api/requirements.txt 2>/dev/null || true
 
 USER headless
 WORKDIR /home/headless
@@ -29,8 +23,8 @@ WORKDIR /home/headless
 RUN mkdir -p "/home/headless/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC"
 
 # Copy custom start script
-COPY scripts/start.sh /start.sh
-RUN sudo chmod +x /start.sh
+COPY --chown=headless:headless scripts/start.sh /start.sh
+RUN chmod +x /start.sh
 
 EXPOSE 6901
 
