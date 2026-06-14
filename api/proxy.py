@@ -55,6 +55,8 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
         target_path = self.path
         if strip:
             target_path = self.path.replace(strip, '', 1)
+        if not target_path.startswith('/'):
+            target_path = '/' + target_path
         url = base_url.rstrip('/') + target_path
         try:
             data = None

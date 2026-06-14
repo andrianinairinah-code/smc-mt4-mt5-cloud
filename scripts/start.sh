@@ -237,16 +237,36 @@ step_done "Wine environment initialized (fresh)"
 # Step 7: Install MetaTrader 5 in background (if missing)
 # ============================================================
 MT5_INSTALL_PID=""
-if [ ! -f "$MT5_EXE" ]; then
-    step_start "Installing MetaTrader 5 in background"
-    MT5_INSTALLER="/home/headless/mt5setup.exe"
-    wget -q "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -O "$MT5_INSTALLER" 2>>"$WINE_LOG" &
-    WGET_PID=$!
-    wait $WGET_PID 2>/dev/null || true
+install_mt5() {
+    local MT5_INSTALLER="/home/headless/mt5setup.exe"
+    wget -q --timeout=60 "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -O "$MT5_INSTALLER" 2>>"$WINE_LOG" || {
+        echo "MT5 download failed (attempt $1)" >> "$WINE_LOG"
+        return 1
+    }
     wine "$MT5_INSTALLER" /auto >>"$WINE_LOG" 2>&1 &
-    MT5_INSTALL_PID=$!
+    local pid=$!
+    for i in $(seq 1 300); do
+        if [ -f "$MT5_EXE" ]; then return 0; fi
+        if ! kill -0 $pid 2>/dev/null; then break; fi
+        sleep 2
+    done
+    [ -f "$MT5_EXE" ] && return 0 || return 1
+}
+if [ ! -f "$MT5_EXE" ]; then
+    step_start "Installing MetaTrader 5"
     mkdir -p "$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/SMC"
-    step_done "MT5 installation started in background (PID $MT5_INSTALL_PID)"
+    for attempt in 1 2 3; do
+        if install_mt5 $attempt; then
+            MT5_INSTALL_PID="done"
+            step_done "MetaTrader 5 installed"
+            break
+        fi
+        step_fail "MT5 install attempt $attempt/3 failed, retrying..."
+        sleep 5
+    done
+    if [ ! -f "$MT5_EXE" ]; then
+        step_fail "MT5 installation failed after 3 attempts"
+    fi
 else
     step_start "Checking MetaTrader 5"
     sleep 0.5
@@ -334,24 +354,16 @@ while true; do
         API_PID=$!
     fi
 
-    # Check MT5 installer progress
-    if [ -n "$MT5_INSTALL_PID" ] && ! kill -0 $MT5_INSTALL_PID 2>/dev/null; then
-        if [ -f "$MT5_EXE" ]; then
-            echo "MT5 installation completed" >> "$WINE_LOG"
-        else
-            echo "MT5 installer process ended, but terminal64.exe not found" >> "$WINE_LOG"
-        fi
-        MT5_INSTALL_PID=""
-    fi
-
     # Check MT5
-    MT5_OK=false
-    if pgrep -f "terminal64.exe" > /dev/null 2>&1; then
-        MT5_OK=true
-    fi
-    if [ "$MT5_OK" = false ] && [ -f "$MT5_EXE" ]; then
-        echo "MT5 died, restarting..."
-        wine "$MT5_EXE" /config:"$MT5_FILES_DIR\mt5.ini" >> "$WINE_LOG" 2>&1 &
+    if [ -f "$MT5_EXE" ]; then
+        if ! pgrep -f "terminal64.exe" > /dev/null 2>&1; then
+            echo "MT5 died, restarting..." >> "$WINE_LOG"
+            wine "$MT5_EXE" /config:"$MT5_FILES_DIR\mt5.ini" >> "$WINE_LOG" 2>&1 &
+        fi
+    else
+        # MT5 not installed yet - retry download
+        echo "MT5 not found, attempting reinstall..." >> "$WINE_LOG"
+        install_mt5 1 >> "$WINE_LOG" 2>&1 || true
     fi
 
     sleep 15
